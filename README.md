@@ -4,6 +4,8 @@ Dashboard cuantitativo de analisis estadistico avanzado para activos financieros
 Incluye indicadores tecnicos, regresiones, distribucion de retornos y generacion de reportes PDF.
 
 [![Streamlit App](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://quant-dashboard-jnrc.streamlit.app)
+![Python](https://img.shields.io/badge/Python-3.10%2B-blue)
+![License](https://img.shields.io/badge/License-MIT-green)
 
 ---
 
