@@ -774,29 +774,17 @@ def _safe_rl_image(fig, width_cm, height_cm):
         return Spacer(1, 0.2)
 
 
-def build_pdf_report(report_data):
-    """
-    Construye el PDF completo con todos los períodos analizados.
+def _rec_color(rec_text):
+    """Color ReportLab según recomendación."""
+    if "COMPRA" in rec_text:
+        return rl_colors.HexColor("#276749")
+    if "VENTA" in rec_text:
+        return rl_colors.HexColor("#9b2c2c")
+    return rl_colors.HexColor("#975a16")
 
-    report_data: dict con la siguiente estructura:
-    {
-        'meta': {
-            'tickers': [...], 'benchmark': str, 'fecha_ini': str, 'fecha_fin': str,
-            'nombres': dict, 'activos': [...], 'activo_limitante': str, 'fecha_corte': str,
-            'config': dict con todos los parámetros
-        },
-        'periodos': {
-            'periodo_label': {
-                'figs': {'base100': fig, 'corr': fig},
-                'tables': {'stat': df, 'percentiles': df, 'resumen': df,
-                           'mm': df, 'macd': df, 'rsi': df, 'fib': df,
-                           'consenso': df, 'consolidado': df},
-                'tec_figs': {ticker: {'mm': fig, 'macd': fig, 'rsi': fig, 'fib': fig}},
-                'score_fig': fig
-            }
-        }
-    }
-    """
+
+def build_pdf_report(report_data):
+    """Construye el PDF completo: resumen ejecutivo + análisis estadístico + investing memo por activo."""
     buffer = BytesIO()
     doc = SimpleDocTemplate(
         buffer, pagesize=A4,
@@ -805,184 +793,353 @@ def build_pdf_report(report_data):
     )
 
     styles = getSampleStyleSheet()
-    h1 = ParagraphStyle('h1c', parent=styles['Heading1'], fontSize=22,
-                        textColor=rl_colors.HexColor("#2d3748"), spaceAfter=10, alignment=TA_CENTER)
-    h2 = ParagraphStyle('h2c', parent=styles['Heading2'], fontSize=16,
-                        textColor=rl_colors.HexColor("#2b6cb0"), spaceAfter=8, spaceBefore=14)
-    h3 = ParagraphStyle('h3c', parent=styles['Heading3'], fontSize=12,
-                        textColor=rl_colors.HexColor("#2d3748"), spaceAfter=6, spaceBefore=10)
+    h1 = ParagraphStyle('h1c', parent=styles['Heading1'], fontSize=20,
+                        textColor=rl_colors.HexColor("#2d3748"), spaceAfter=8, alignment=TA_CENTER)
+    h2 = ParagraphStyle('h2c', parent=styles['Heading2'], fontSize=14,
+                        textColor=rl_colors.HexColor("#2b6cb0"), spaceAfter=6, spaceBefore=12)
+    h3 = ParagraphStyle('h3c', parent=styles['Heading3'], fontSize=11,
+                        textColor=rl_colors.HexColor("#2d3748"), spaceAfter=4, spaceBefore=8)
+    h4 = ParagraphStyle('h4c', parent=styles['Normal'], fontSize=10, fontName='Helvetica-Bold',
+                        textColor=rl_colors.HexColor("#1a202c"), spaceAfter=3, spaceBefore=6)
     normal = ParagraphStyle('normal_c', parent=styles['Normal'], fontSize=9,
                             textColor=rl_colors.HexColor("#1a202c"), leading=12)
     small = ParagraphStyle('small_c', parent=styles['Normal'], fontSize=8,
                            textColor=rl_colors.HexColor("#4a5568"), leading=10)
+    memo_title = ParagraphStyle('memo_title', parent=styles['Heading1'], fontSize=18,
+                                textColor=rl_colors.HexColor("#1a365d"), spaceAfter=6,
+                                alignment=TA_CENTER, fontName='Helvetica-Bold')
 
     story = []
     meta = report_data['meta']
 
-    # ─────── PORTADA ───────
-    story.append(Spacer(1, 4*cm))
+    # ═══════════════════════════════════════════
+    # PORTADA
+    # ═══════════════════════════════════════════
+    story.append(Spacer(1, 3.5*cm))
     story.append(Paragraph("QUANT ANALYSIS DASHBOARD", h1))
-    story.append(Spacer(1, 0.5*cm))
+    story.append(Spacer(1, 0.4*cm))
     story.append(Paragraph("Informe de Análisis Técnico y Estadístico", h2))
-    story.append(Spacer(1, 1.5*cm))
+    story.append(Spacer(1, 1.2*cm))
 
     cover_tbl = Table([
         ["Fecha del reporte:", datetime.now().strftime("%Y-%m-%d %H:%M")],
-        ["Benchmark:",          f"{meta['benchmark']} ({meta['nombres'].get(meta['benchmark'], meta['benchmark'])})"],
+        ["Benchmark:",         f"{meta['benchmark']} ({meta['nombres'].get(meta['benchmark'], meta['benchmark'])})"],
         ["Activos analizados:", ", ".join(meta['activos'])],
-        ["Rango de datos:",     f"{meta['fecha_ini']}  →  {meta['fecha_fin']}"],
-        ["Períodos:",            ", ".join(report_data['periodos'].keys())],
+        ["Rango de datos:",    f"{meta['fecha_ini']}  →  {meta['fecha_fin']}"],
+        ["Períodos:",          ", ".join(report_data['periodos'].keys())],
     ], colWidths=[5*cm, 11*cm])
     cover_tbl.setStyle(TableStyle([
-        ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
-        ('FONTSIZE', (0, 0), (-1, -1), 10),
-        ('TEXTCOLOR', (0, 0), (0, -1), rl_colors.HexColor("#2d3748")),
-        ('TEXTCOLOR', (1, 0), (1, -1), rl_colors.HexColor("#1a202c")),
-        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+        ('FONTNAME',      (0, 0), (0, -1), 'Helvetica-Bold'),
+        ('FONTSIZE',      (0, 0), (-1, -1), 10),
+        ('TEXTCOLOR',     (0, 0), (0, -1), rl_colors.HexColor("#2d3748")),
+        ('TEXTCOLOR',     (1, 0), (1, -1), rl_colors.HexColor("#1a202c")),
+        ('VALIGN',        (0, 0), (-1, -1), 'TOP'),
         ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
     ]))
     story.append(cover_tbl)
     story.append(PageBreak())
 
-    # ─────── PARÁMETROS DE CONFIGURACIÓN ───────
+    # ═══════════════════════════════════════════
+    # PARÁMETROS DE CONFIGURACIÓN
+    # ═══════════════════════════════════════════
     story.append(Paragraph("Parámetros de Configuración", h2))
     cfg = meta['config']
     config_data = [
-        ["Pesos macro — Estadístico vs Técnico", f"{cfg['w_stat_total']*100:.0f}%  /  {cfg['w_tec_total']*100:.0f}%"],
-        ["Pesos estadístico — Regresión / Percentil", f"{cfg['w_reg']*100:.0f}%  /  {cfg['w_pct']*100:.0f}%"],
-        ["Pesos técnico — MM / RSI / MACD / Fib", f"{cfg['mm_w']}% / {cfg['rsi_w']}% / {cfg['macd_w']}% / {cfg['fib_w']}%"],
-        ["Períodos Medias Móviles",         ", ".join(str(p) for p in cfg['mm_periods'])],
-        ["Período RSI",                      str(cfg['rsi_period'])],
-        ["Umbrales RSI (compra/venta)",     f"≤{cfg['rsi_buy_threshold']}  /  ≥{cfg['rsi_sell_threshold']}"],
-        ["MACD (fast / slow / signal)",     f"{cfg['macd_fast']} / {cfg['macd_slow']} / {cfg['macd_signal']}"],
-        ["Fibonacci — % reversión ZigZag",  f"{cfg['fib_reversal_pct']*100:.1f}%"],
-        ["Fibonacci — Duración mínima swing", f"{cfg['fib_min_duration']} días"],
-        ["Umbral estadístico (suma_producto)", f"±{cfg['stat_threshold']*100:.1f}%"],
-        ["Umbral decisión final (score)",   f"±{cfg['final_threshold']:.2f}"],
+        ["Pesos — Estadístico / Técnico",       f"{cfg['w_stat_total']*100:.0f}%  /  {cfg['w_tec_total']*100:.0f}%"],
+        ["Pesos estad. — Regresión / Percentil", f"{cfg['w_reg']*100:.0f}%  /  {cfg['w_pct']*100:.0f}%"],
+        ["Pesos técnico — MM / RSI / MACD / Fib",f"{cfg['mm_w']}% / {cfg['rsi_w']}% / {cfg['macd_w']}% / {cfg['fib_w']}%"],
+        ["Períodos Medias Móviles",              ", ".join(str(p) for p in cfg['mm_periods'])],
+        ["Período RSI",                          str(cfg['rsi_period'])],
+        ["Umbrales RSI (compra / venta)",        f"≤{cfg['rsi_buy_threshold']}  /  ≥{cfg['rsi_sell_threshold']}"],
+        ["MACD (fast / slow / signal)",          f"{cfg['macd_fast']} / {cfg['macd_slow']} / {cfg['macd_signal']}"],
+        ["Fibonacci — % reversión ZigZag",       f"{cfg['fib_reversal_pct']*100:.1f}%"],
+        ["Fibonacci — Duración mínima swing",    f"{cfg['fib_min_duration']} días"],
+        ["Umbral estadístico (suma_producto)",   f"±{cfg['stat_threshold']*100:.1f}%"],
+        ["Umbral decisión final (score)",        f"±{cfg['final_threshold']:.2f}"],
     ]
     cfg_tbl = Table(config_data, colWidths=[8*cm, 8*cm])
     cfg_tbl.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (0, -1), rl_colors.HexColor("#edf2f7")),
-        ('FONTNAME',   (0, 0), (0, -1), 'Helvetica-Bold'),
-        ('FONTSIZE',   (0, 0), (-1, -1), 9),
-        ('GRID',       (0, 0), (-1, -1), 0.3, rl_colors.HexColor("#cbd5e0")),
-        ('LEFTPADDING',(0, 0), (-1, -1), 6),
-        ('RIGHTPADDING',(0, 0), (-1, -1), 6),
-        ('TOPPADDING', (0, 0), (-1, -1), 4),
-        ('BOTTOMPADDING',(0, 0), (-1, -1), 4),
+        ('BACKGROUND',    (0, 0), (0, -1), rl_colors.HexColor("#edf2f7")),
+        ('FONTNAME',      (0, 0), (0, -1), 'Helvetica-Bold'),
+        ('FONTSIZE',      (0, 0), (-1, -1), 9),
+        ('GRID',          (0, 0), (-1, -1), 0.3, rl_colors.HexColor("#cbd5e0")),
+        ('LEFTPADDING',   (0, 0), (-1, -1), 6),
+        ('RIGHTPADDING',  (0, 0), (-1, -1), 6),
+        ('TOPPADDING',    (0, 0), (-1, -1), 4),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
     ]))
     story.append(cfg_tbl)
     story.append(Spacer(1, 0.5*cm))
-
     if meta.get('activo_limitante'):
         story.append(Paragraph(
             f"<b>Fecha unificada:</b> el análisis arranca en <b>{meta['fecha_corte']}</b> "
             f"porque <b>{meta['activo_limitante']}</b> es el activo con menor histórico disponible.",
-            normal
-        ))
+            normal))
     story.append(PageBreak())
 
-    # ─────── RESUMEN EJECUTIVO ───────
+    # ═══════════════════════════════════════════
+    # RESUMEN EJECUTIVO — tabla de recomendaciones por período
+    # ═══════════════════════════════════════════
     story.append(Paragraph("Resumen Ejecutivo", h2))
     story.append(Paragraph(
-        "Consolidado de recomendaciones finales por período. "
-        "Cada activo recibe una recomendación (COMPRA / VENTA / MANTENER) basada en el score ponderado "
-        "que combina las señales estadísticas y técnicas según los pesos y umbrales configurados.",
-        normal
-    ))
+        "Recomendaciones finales por período. Score ponderado combinando señales "
+        "estadísticas y técnicas según los pesos configurados.",
+        normal))
     story.append(Spacer(1, 0.4*cm))
 
     for periodo, pdata in report_data['periodos'].items():
         story.append(Paragraph(f"Período: {periodo}", h3))
-        if 'consolidado' in pdata['tables']:
-            # Subset de columnas claves para resumen
-            df_consol = pdata['tables']['consolidado']
-            cols_resumen = [c for c in ['Score Final', 'RECOMENDACIÓN'] if c in df_consol.columns]
-            if cols_resumen:
-                df_show = df_consol[cols_resumen].copy()
-                df_show.index.name = "Activo"
-                story.append(df_to_pdf_table(df_show, font_size=8, col_widths=[3.5*cm, 3*cm, 4*cm]))
+        df_consol = pdata['tables'].get('consolidado')
+        if df_consol is not None:
+            cols_show = [c for c in ['Score Estadístico', 'Score Técnico', 'Score Final', 'RECOMENDACIÓN']
+                         if c in df_consol.columns]
+            if cols_show:
+                story.append(df_to_pdf_table(df_consol[cols_show], font_size=8))
                 story.append(Spacer(1, 0.3*cm))
     story.append(PageBreak())
 
-    # ─────── POR CADA PERÍODO ───────
+    # ═══════════════════════════════════════════
+    # ANÁLISIS POR PERÍODO — Estadístico + Técnico
+    # ═══════════════════════════════════════════
     for periodo, pdata in report_data['periodos'].items():
         story.append(Paragraph(f"Análisis del período: {periodo}", h1))
-        story.append(Spacer(1, 0.4*cm))
+        story.append(Spacer(1, 0.3*cm))
 
-        # ── Bloque Estadístico ──
+        # ── Bloque Estadístico ──────────────────
         story.append(Paragraph("Bloque Estadístico", h2))
 
-        if 'base100' in pdata['figs']:
-            story.append(_safe_rl_image(pdata['figs']['base100'], 17*cm, 7.5*cm))
+        figs = pdata.get('figs', {})
+        if figs.get('base100'):
+            story.append(_safe_rl_image(figs['base100'], 17*cm, 7*cm))
+            story.append(Spacer(1, 0.3*cm))
+        if figs.get('corr'):
+            story.append(_safe_rl_image(figs['corr'], 17*cm, 6*cm))
             story.append(Spacer(1, 0.3*cm))
 
-        if 'corr' in pdata['figs']:
-            story.append(_safe_rl_image(pdata['figs']['corr'], 17*cm, 7.5*cm))
-            story.append(Spacer(1, 0.3*cm))
-
-        story.append(Paragraph("Métricas estadísticas por activo", h3))
-        if 'stat' in pdata['tables']:
-            story.append(df_to_pdf_table(pdata['tables']['stat'], font_size=6.5))
+        tables = pdata.get('tables', {})
+        story.append(Paragraph("Métricas estadísticas", h3))
+        if tables.get('stat') is not None:
+            story.append(df_to_pdf_table(tables['stat'], font_size=6.5))
             story.append(Spacer(1, 0.3*cm))
 
         story.append(Paragraph("Análisis de percentiles (precio LN)", h3))
-        if 'percentiles' in pdata['tables']:
-            story.append(df_to_pdf_table(pdata['tables']['percentiles'], font_size=6.5))
+        if tables.get('percentiles') is not None:
+            story.append(df_to_pdf_table(tables['percentiles'], font_size=6.5))
             story.append(Spacer(1, 0.3*cm))
 
         story.append(Paragraph("Resumen de valoración estadística", h3))
-        if 'resumen' in pdata['tables']:
-            story.append(df_to_pdf_table(pdata['tables']['resumen'], font_size=7))
+        if tables.get('resumen') is not None:
+            story.append(df_to_pdf_table(tables['resumen'], font_size=7))
         story.append(PageBreak())
 
-        # ── Bloque Técnico ──
-        story.append(Paragraph("Bloque Técnico", h2))
+        # ── Bloque Técnico — tablas resumen ─────
+        story.append(Paragraph("Bloque Técnico — Resumen por activo", h2))
+        for label, key in [("Medias Móviles", 'mm'), ("MACD", 'macd'),
+                           ("RSI", 'rsi'), ("Fibonacci", 'fib')]:
+            story.append(Paragraph(f"{label} — Tabla resumen", h3))
+            if tables.get(key) is not None:
+                story.append(df_to_pdf_table(tables[key], font_size=7))
+                story.append(Spacer(1, 0.3*cm))
 
-        story.append(Paragraph("Medias Móviles — Tabla resumen", h3))
-        if 'mm' in pdata['tables']:
-            story.append(df_to_pdf_table(pdata['tables']['mm'], font_size=7))
-            story.append(Spacer(1, 0.3*cm))
-
-        story.append(Paragraph("MACD — Tabla resumen", h3))
-        if 'macd' in pdata['tables']:
-            story.append(df_to_pdf_table(pdata['tables']['macd'], font_size=7))
-            story.append(Spacer(1, 0.3*cm))
-
-        story.append(Paragraph("RSI — Tabla resumen", h3))
-        if 'rsi' in pdata['tables']:
-            story.append(df_to_pdf_table(pdata['tables']['rsi'], font_size=7))
-            story.append(Spacer(1, 0.3*cm))
-
-        story.append(Paragraph("Fibonacci (ZigZag) — Niveles detectados", h3))
-        if 'fib' in pdata['tables']:
-            story.append(df_to_pdf_table(pdata['tables']['fib'], font_size=6.5))
-        story.append(PageBreak())
-
-        # ── Consenso Técnico ──
-        story.append(Paragraph("Consenso Técnico", h2))
-        if 'consenso' in pdata['tables']:
-            story.append(df_to_pdf_table(pdata['tables']['consenso'], font_size=7))
+        story.append(Paragraph("Consenso Técnico", h3))
+        if tables.get('consenso') is not None:
+            story.append(df_to_pdf_table(tables['consenso'], font_size=7))
         story.append(Spacer(1, 0.4*cm))
 
-        # ── Consolidado Final ──
         story.append(Paragraph("Consolidado Final — Decisión", h2))
-        if 'consolidado' in pdata['tables']:
-            story.append(df_to_pdf_table(pdata['tables']['consolidado'], font_size=6))
+        if tables.get('consolidado') is not None:
+            story.append(df_to_pdf_table(tables['consolidado'], font_size=6))
             story.append(Spacer(1, 0.4*cm))
-
-        if 'score' in pdata['figs']:
-            story.append(_safe_rl_image(pdata['figs']['score'], 17*cm, 8.5*cm))
-
+        if figs.get('score'):
+            story.append(_safe_rl_image(figs['score'], 17*cm, 8*cm))
         story.append(PageBreak())
 
-    # Footer en última página
+        # ═══════════════════════════════════════
+        # INVESTING MEMO — por cada activo
+        # ═══════════════════════════════════════
+        story.append(Paragraph(f"INVESTING MEMO — {periodo}", memo_title))
+        story.append(Paragraph(
+            "Análisis individual por activo: gráficas técnicas, análisis de percentiles "
+            "y regresión lineal, y recomendación de compra/venta fundamentada.",
+            normal))
+        story.append(Spacer(1, 0.5*cm))
+
+        tec_figs = pdata.get('tec_figs', {})
+        consol_rows = pdata.get('consol_rows', [])
+        stats_result = pdata.get('stats_result', {})
+
+        # Índice rápido de consol_rows por activo
+        consol_by_activo = {r['Activo']: r for r in consol_rows}
+
+        for col in (tec_figs.keys() if tec_figs else []):
+            nombres_meta = meta.get('nombres', {})
+            nombre = nombres_meta.get(col, col)
+            row = consol_by_activo.get(col, {})
+            rec_text = row.get('RECOMENDACIÓN', '—')
+            score_f  = row.get('Score Final', '—')
+            score_e  = row.get('Score Estadístico', '—')
+            score_t  = row.get('Score Técnico', '—')
+
+            # ── Cabecera del activo ──
+            rec_color = _rec_color(rec_text)
+            header_data = [[
+                Paragraph(f"<b>{col}</b>", ParagraphStyle('th', fontSize=13, fontName='Helvetica-Bold',
+                          textColor=rl_colors.HexColor("#1a365d"))),
+                Paragraph(nombre[:40], ParagraphStyle('tn', fontSize=10,
+                          textColor=rl_colors.HexColor("#4a5568"))),
+                Paragraph(f"<b>{rec_text}</b>", ParagraphStyle('tr', fontSize=13, fontName='Helvetica-Bold',
+                          textColor=rec_color, alignment=TA_CENTER)),
+            ]]
+            header_tbl = Table(header_data, colWidths=[3*cm, 9*cm, 5*cm])
+            header_tbl.setStyle(TableStyle([
+                ('BACKGROUND',    (0, 0), (-1, -1), rl_colors.HexColor("#ebf8ff")),
+                ('BOX',           (0, 0), (-1, -1), 1, rl_colors.HexColor("#bee3f8")),
+                ('VALIGN',        (0, 0), (-1, -1), 'MIDDLE'),
+                ('TOPPADDING',    (0, 0), (-1, -1), 8),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+                ('LEFTPADDING',   (0, 0), (-1, -1), 8),
+            ]))
+            story.append(header_tbl)
+            story.append(Spacer(1, 0.25*cm))
+
+            # ── Score breakdown ──
+            score_data = [
+                ["Score Estadístico", "Score Técnico", "Score Final"],
+                [str(score_e), str(score_t), str(score_f)],
+            ]
+            score_tbl = Table(score_data, colWidths=[5.5*cm, 5.5*cm, 6*cm])
+            score_tbl.setStyle(TableStyle([
+                ('BACKGROUND',    (0, 0), (-1, 0), rl_colors.HexColor("#2d3748")),
+                ('TEXTCOLOR',     (0, 0), (-1, 0), rl_colors.white),
+                ('FONTNAME',      (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('FONTSIZE',      (0, 0), (-1, -1), 9),
+                ('ALIGN',         (0, 0), (-1, -1), 'CENTER'),
+                ('GRID',          (0, 0), (-1, -1), 0.3, rl_colors.HexColor("#cbd5e0")),
+                ('TOPPADDING',    (0, 0), (-1, -1), 5),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
+            ]))
+            story.append(score_tbl)
+            story.append(Spacer(1, 0.3*cm))
+
+            # ── Análisis de percentiles y regresión ──
+            s = stats_result.get(col)
+            if s:
+                story.append(Paragraph("Percentiles y Regresión Lineal", h4))
+                pct_data = [
+                    ["Parámetro", "Valor"],
+                    ["Precio Actual",       f"${s.get('last_price', 0):.2f}"],
+                    ["Precio Valorado",     f"${s.get('precio_valorado', 0):.2f}"],
+                    ["Pot. Regresión (%)",  f"{s.get('pot_val_reg', 0)*100:+.2f}%"],
+                    ["Pot. Percentil (%)",  f"{s.get('pot_val_pct', 0)*100:+.2f}%"],
+                    ["Potencial Total (%)", f"{s.get('suma_producto', 0)*100:+.2f}%"],
+                    ["Percentil Actual",    f"{s.get('pct_rank', 0)*100:.1f}%"],
+                    ["Alpha (regresión)",   f"{s.get('alpha', 0):.6f}"],
+                    ["Beta (regresión)",    f"{s.get('beta', 0):.4f}"],
+                    ["R² (regresión)",      f"{s.get('r2', 0):.4f}"],
+                    ["Correlación",         f"{s.get('corr', 0):.4f}"],
+                    ["Std 20d",             f"{s.get('std_20', 0):.6f}"],
+                    ["Volatilidad (CV 20d)",f"{s.get('cv_20', 0):.4f}"],
+                ]
+                pct_tbl = Table(pct_data, colWidths=[7*cm, 10*cm])
+                pct_tbl.setStyle(TableStyle([
+                    ('BACKGROUND',    (0, 0), (-1, 0), rl_colors.HexColor("#2b6cb0")),
+                    ('TEXTCOLOR',     (0, 0), (-1, 0), rl_colors.white),
+                    ('FONTNAME',      (0, 0), (0, -1), 'Helvetica-Bold'),
+                    ('FONTSIZE',      (0, 0), (-1, -1), 8),
+                    ('GRID',          (0, 0), (-1, -1), 0.3, rl_colors.HexColor("#bee3f8")),
+                    ('ROWBACKGROUNDS', (0, 1), (-1, -1),
+                     [rl_colors.white, rl_colors.HexColor("#ebf8ff")]),
+                    ('LEFTPADDING',   (0, 0), (-1, -1), 6),
+                    ('RIGHTPADDING',  (0, 0), (-1, -1), 6),
+                    ('TOPPADDING',    (0, 0), (-1, -1), 4),
+                    ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+                ]))
+                story.append(pct_tbl)
+                story.append(Spacer(1, 0.3*cm))
+
+            # ── Gráficas técnicas ──
+            tfigs = tec_figs.get(col, {})
+
+            if tfigs.get('mm'):
+                story.append(Paragraph("Medias Móviles", h4))
+                story.append(_safe_rl_image(tfigs['mm'], 17*cm, 6.5*cm))
+                if row.get('MM'):
+                    story.append(Paragraph(f"Señal MM: <b>{row['MM']}</b>", small))
+                story.append(Spacer(1, 0.3*cm))
+
+            if tfigs.get('macd'):
+                story.append(Paragraph("MACD", h4))
+                story.append(_safe_rl_image(tfigs['macd'], 17*cm, 7*cm))
+                if row.get('MACD'):
+                    story.append(Paragraph(f"Señal MACD: <b>{row['MACD']}</b>", small))
+                story.append(Spacer(1, 0.3*cm))
+
+            if tfigs.get('rsi'):
+                story.append(Paragraph("RSI", h4))
+                story.append(_safe_rl_image(tfigs['rsi'], 17*cm, 5.5*cm))
+                if row.get('RSI'):
+                    story.append(Paragraph(f"Señal RSI: <b>{row['RSI']}</b>", small))
+                story.append(Spacer(1, 0.3*cm))
+
+            if tfigs.get('fib'):
+                story.append(Paragraph("Fibonacci (ZigZag)", h4))
+                story.append(_safe_rl_image(tfigs['fib'], 17*cm, 6.5*cm))
+                if row.get('Fibonacci'):
+                    story.append(Paragraph(f"Señal Fibonacci: <b>{row['Fibonacci']}</b>", small))
+                story.append(Spacer(1, 0.3*cm))
+
+            # ── Conclusión compra/venta ──
+            story.append(Paragraph("Conclusión de Inversión", h4))
+            if "COMPRA" in rec_text:
+                conclusion_color = rl_colors.HexColor("#276749")
+                conclusion_bg    = rl_colors.HexColor("#f0fff4")
+                icon = "▲ COMPRA"
+            elif "VENTA" in rec_text:
+                conclusion_color = rl_colors.HexColor("#9b2c2c")
+                conclusion_bg    = rl_colors.HexColor("#fff5f5")
+                icon = "▼ VENTA"
+            else:
+                conclusion_color = rl_colors.HexColor("#975a16")
+                conclusion_bg    = rl_colors.HexColor("#fffbeb")
+                icon = "● MANTENER"
+
+            v_mm   = row.get('MM', '—')
+            v_macd = row.get('MACD', '—')
+            v_rsi  = row.get('RSI', '—')
+            v_fib  = row.get('Fibonacci', '—')
+            v_stat = row.get('Estadístico', '—')
+
+            conclusion_data = [
+                [Paragraph(f"<b>{col} — {icon}</b>",
+                           ParagraphStyle('cv', fontSize=12, fontName='Helvetica-Bold',
+                                          textColor=conclusion_color))],
+                [Paragraph(
+                    f"Score final: <b>{score_f}</b>  |  "
+                    f"Estadístico: <b>{v_stat}</b>  |  "
+                    f"MM: <b>{v_mm}</b>  |  "
+                    f"MACD: <b>{v_macd}</b>  |  "
+                    f"RSI: <b>{v_rsi}</b>  |  "
+                    f"Fibonacci: <b>{v_fib}</b>",
+                    ParagraphStyle('cdet', fontSize=8, textColor=rl_colors.HexColor("#2d3748")))],
+            ]
+            conc_tbl = Table(conclusion_data, colWidths=[17*cm])
+            conc_tbl.setStyle(TableStyle([
+                ('BACKGROUND',    (0, 0), (-1, -1), conclusion_bg),
+                ('BOX',           (0, 0), (-1, -1), 1.5, conclusion_color),
+                ('LEFTPADDING',   (0, 0), (-1, -1), 10),
+                ('TOPPADDING',    (0, 0), (-1, -1), 8),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+            ]))
+            story.append(conc_tbl)
+            story.append(Spacer(1, 0.8*cm))
+            story.append(PageBreak())
+
+    # ── Footer ──────────────────────────────────
     story.append(Spacer(1, 1*cm))
     story.append(Paragraph(
         f"<i>Reporte generado el {datetime.now().strftime('%Y-%m-%d %H:%M')} — "
         "Quant Dashboard · Datos: Yahoo Finance / Excel</i>",
-        small
-    ))
+        small))
 
     doc.build(story)
     buffer.seek(0)
@@ -1738,6 +1895,21 @@ for tab, periodo_label in zip(tabs, periodos_sel):
         # ════════════════════════════════════════════
         # ACUMULAR DATOS PARA INFORME PDF
         # ════════════════════════════════════════════
+        # Generar gráficas técnicas para TODOS los activos (para el PDF investing memo)
+        tec_figs_pdf = {}
+        for col in activos:
+            c = tec_cache[col]
+            try:
+                tec_figs_pdf[col] = {
+                    'mm':   fig_mm(c["mm_df"], col, periods=mm_periods),
+                    'macd': fig_macd(c["macd_df"], col),
+                    'rsi':  fig_rsi(c["rsi"], col, period=rsi_period,
+                                   buy_th=rsi_buy_threshold, sell_th=rsi_sell_threshold),
+                    'fib':  fig_fibonacci(c["p_tec"], c["fib_levels"], col, meta=c["fib_meta"]),
+                }
+            except Exception:
+                tec_figs_pdf[col] = {}
+
         report_data['periodos'][periodo_label] = {
             'figs': {
                 'base100': fig_base100(base100, benchmark_col),
@@ -1755,6 +1927,9 @@ for tab, periodo_label in zip(tabs, periodos_sel):
                 'consenso':     pd.DataFrame(consenso_table).set_index("Activo"),
                 'consolidado':  df_consol,
             },
+            'tec_figs':    tec_figs_pdf,
+            'consol_rows': consol_rows,
+            'stats_result': stats_result,
         }
 
         # Guardar en session_state para que persista al hacer clic en botón PDF
@@ -1768,52 +1943,48 @@ for tab, periodo_label in zip(tabs, periodos_sel):
 
         buffer = BytesIO()
         with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-            # Hoja 1: Precios
             prices.to_excel(writer, sheet_name='Precios')
-            # Hoja 2: Rendimientos
             returns.to_excel(writer, sheet_name='Rendimientos')
-            # Hoja 3: Base 100
             base100.to_excel(writer, sheet_name='Base 100')
-            # Hoja 4: Precios LN
             ln_prices.to_excel(writer, sheet_name='Precios LN')
-            # Hoja 5: Métricas estadísticas
-            df_stat.to_excel(writer, sheet_name='Estadísticas')
-            # Hoja 6: Percentiles
-            pd.DataFrame(pct_rows).T.to_excel(writer, sheet_name='Percentiles')
-            # Hoja 7: Resumen valoración
-            pd.DataFrame(consol_df_for_excel).to_excel(writer, sheet_name='Consolidado Final')
-            # Hoja estadisticas sin tilde para compatibilidad
+            # Nombre sin tilde para máxima compatibilidad entre sistemas
             df_stat.to_excel(writer, sheet_name='Estadisticas')
+            pd.DataFrame(pct_rows).T.to_excel(writer, sheet_name='Percentiles')
+            consol_df_for_excel.to_excel(writer, sheet_name='Consolidado Final')
 
             # Hojas técnicas por activo
             for col in activos:
-                if col in prices_full.columns:
-                    p_tec = prices_full[col].dropna()
-                else:
-                    p_tec = prices[col].dropna()
+                p_tec = prices_full[col].dropna() if col in prices_full.columns else prices[col].dropna()
+                safe_col = col.replace('/', '-').replace('\\', '-')
 
-                # MM
-                mm_df_export = calc_mm(p_tec, periods=mm_periods)
-                sheet_mm = f'MM_{col}'[:31]  # Excel limita a 31 chars
-                mm_df_export.to_excel(writer, sheet_name=sheet_mm)
+                try:
+                    mm_df_export = calc_mm(p_tec, periods=mm_periods)
+                    mm_df_export.to_excel(writer, sheet_name=f'MM_{safe_col}'[:31])
+                except Exception:
+                    pass
 
-                # MACD
-                macd_df_export = calc_macd(p_tec, fast=macd_fast, slow=macd_slow, signal=macd_signal)
-                sheet_macd = f'MACD_{col}'[:31]
-                macd_df_export.to_excel(writer, sheet_name=sheet_macd)
+                try:
+                    macd_df_export = calc_macd(p_tec, fast=macd_fast, slow=macd_slow, signal=macd_signal)
+                    macd_df_export.to_excel(writer, sheet_name=f'MACD_{safe_col}'[:31])
+                except Exception:
+                    pass
 
-                # RSI
-                rsi_export = calc_rsi(p_tec, period=rsi_period)
-                sheet_rsi = f'RSI_{col}'[:31]
-                rsi_export.to_frame(name=f'RSI_{rsi_period}').to_excel(writer, sheet_name=sheet_rsi)
+                try:
+                    rsi_export = calc_rsi(p_tec, period=rsi_period)
+                    rsi_export.to_frame(name=f'RSI_{rsi_period}').to_excel(
+                        writer, sheet_name=f'RSI_{safe_col}'[:31])
+                except Exception:
+                    pass
 
-                # Fibonacci (con parámetros ZigZag)
-                fib_levels_export = calc_fibonacci(p_tec,
-                                                   reversal_pct=fib_reversal_pct,
-                                                   min_duration_days=fib_min_duration)[0]
-                sheet_fib = f'Fib_{col}'[:31]
-                pd.DataFrame(list(fib_levels_export.items()),
-                             columns=['Nivel', 'Precio']).to_excel(writer, sheet_name=sheet_fib, index=False)
+                try:
+                    fib_levels_export = calc_fibonacci(
+                        p_tec, reversal_pct=fib_reversal_pct,
+                        min_duration_days=fib_min_duration)[0]
+                    pd.DataFrame(list(fib_levels_export.items()),
+                                 columns=['Nivel', 'Precio']).to_excel(
+                        writer, sheet_name=f'Fib_{safe_col}'[:31], index=False)
+                except Exception:
+                    pass
 
         buffer.seek(0)
         st.download_button(
