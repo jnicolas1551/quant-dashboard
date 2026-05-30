@@ -723,8 +723,12 @@ def plotly_to_image(fig, width=900, height=500, scale=1.5):
     # Algunos sub-axes en make_subplots no se tocan con update_layout: forzar de uno
     fig_pdf.update_xaxes(gridcolor="#cccccc", color="black")
     fig_pdf.update_yaxes(gridcolor="#cccccc", color="black")
-    img_bytes = fig_pdf.to_image(format="png", width=width, height=height, scale=scale, engine="kaleido")
-    return BytesIO(img_bytes)
+    try:
+        img_bytes = fig_pdf.to_image(format="png", width=width, height=height, scale=scale, engine="kaleido")
+        return BytesIO(img_bytes)
+    except Exception:
+        # Fallback: imagen en blanco si kaleido no esta disponible
+        return None
 
 
 def df_to_pdf_table(df, col_widths=None, font_size=7, max_rows=None):
@@ -756,6 +760,18 @@ def df_to_pdf_table(df, col_widths=None, font_size=7, max_rows=None):
         ('BOTTOMPADDING',(0, 0), (-1, -1), 3),
     ]))
     return tbl
+
+
+def _safe_rl_image(fig, width_cm, height_cm):
+    """Convierte figura Plotly a RLImage; retorna Spacer si kaleido falla."""
+    from reportlab.platypus import Spacer
+    buf = plotly_to_image(fig, width=900, height=int(height_cm * 60))
+    if buf is None:
+        return Spacer(1, 0.2)
+    try:
+        return RLImage(buf, width=width_cm, height=height_cm)
+    except Exception:
+        return Spacer(1, 0.2)
 
 
 def build_pdf_report(report_data):
@@ -898,13 +914,11 @@ def build_pdf_report(report_data):
         story.append(Paragraph("Bloque Estadístico", h2))
 
         if 'base100' in pdata['figs']:
-            img = plotly_to_image(pdata['figs']['base100'], width=900, height=400)
-            story.append(RLImage(img, width=17*cm, height=7.5*cm))
+            story.append(_safe_rl_image(pdata['figs']['base100'], 17*cm, 7.5*cm))
             story.append(Spacer(1, 0.3*cm))
 
         if 'corr' in pdata['figs']:
-            img = plotly_to_image(pdata['figs']['corr'], width=900, height=400)
-            story.append(RLImage(img, width=17*cm, height=7.5*cm))
+            story.append(_safe_rl_image(pdata['figs']['corr'], 17*cm, 7.5*cm))
             story.append(Spacer(1, 0.3*cm))
 
         story.append(Paragraph("Métricas estadísticas por activo", h3))
@@ -958,8 +972,7 @@ def build_pdf_report(report_data):
             story.append(Spacer(1, 0.4*cm))
 
         if 'score' in pdata['figs']:
-            img = plotly_to_image(pdata['figs']['score'], width=900, height=450)
-            story.append(RLImage(img, width=17*cm, height=8.5*cm))
+            story.append(_safe_rl_image(pdata['figs']['score'], 17*cm, 8.5*cm))
 
         story.append(PageBreak())
 
@@ -1769,6 +1782,8 @@ for tab, periodo_label in zip(tabs, periodos_sel):
             pd.DataFrame(pct_rows).T.to_excel(writer, sheet_name='Percentiles')
             # Hoja 7: Resumen valoración
             pd.DataFrame(consol_df_for_excel).to_excel(writer, sheet_name='Consolidado Final')
+            # Hoja estadisticas sin tilde para compatibilidad
+            df_stat.to_excel(writer, sheet_name='Estadisticas')
 
             # Hojas técnicas por activo
             for col in activos:
